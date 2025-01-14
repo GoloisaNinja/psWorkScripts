@@ -8,6 +8,10 @@
 $Outlook = New-Object -ComObject Outlook.Application
 $Mail = $Outlook.CreateItem(0)
 
+#---PASSWORD STUFF---#
+[Reflection.Assembly]::LoadWithPartialName("System.Web")
+[System.Web.Security.Membership]::GeneratePassword(15,2)
+
 #---FUNCTIONS---#
 function Set-MyTemplate {
     param (
@@ -72,9 +76,32 @@ $base
 $footer
 "@
 #---------------#
+#---SAGE CREDENTIAL---#
+$sage = @"
+<html>
+<style>
+    .mnone{margin: 0px;}
+    .blue{color: #1b41fa;}
+</style>
+<body>
+    <p>Hello $user,</p>
+    <p class="mnone">Your Sage Credentials have been <strong>$sageAction</strong>.</p>
+    <p class="mnone">Please login to Sage using the following:</p>
+    <p class="mnone">Login: <strong><span class="blue">$login</span></strong></p>
+    <p class="mnone">Password: <strong><span class="blue">$password</span></strong></p>
+    <br />
+    <h3>Please Note:</h3>
+    <p class="mnone">This is a temporary password. Once logged in to Sage, please choose the menu option File > Change User Password</p>
+    <p class="mnone">The included email attachment shows you what this menu looks like, if needed.</p>
+    <p class="mnone">Your password must contain upper case and lower case letters, at least one digit, and at least one special character (ex. !).</p>
+</body>
+</html>
+"@
+#----------------#
  Switch($tname) {
     "dupe" {$template = $dupe}
     "date" {$template = $date}
+    "sage" {$template = $sage}
  }
  $template
 }
@@ -116,9 +143,15 @@ function Get-MyEmailDetails {
         "cc" = "aramero@onelineage.com;jparker@onelineage.com;bhamlin@onelineage.com"
         "sub" = Get-MySubjectLine -tType "date"
     }
+    $sageDetails = @{
+        "to" = $userEmail
+        "cc" = $null
+        "sub" = "Sage Credentials"
+    }
     Switch($tType) {
         "dupe" {return $dupeDetails;Break}
         "date" {return $dateDetails;Break}
+        "sage" {return $sageDetails;Break}
     }
 }
 
@@ -151,6 +184,13 @@ $to = $null
 $cc = $null
 $sub = $null
 
+$user = $null
+$userEmail = $null
+$sageActionInt = 0
+$sageAction = $null
+$login = $null
+$password = $null
+
 
 $templateChoice = 0
 $templateChoiceStr = ""
@@ -158,8 +198,8 @@ $quantity = 0
 $attachmentCount = -1
 $soStr = ""
 
-while ($templateChoice -lt 1 -or $templateChoice -gt 3) {
-    [int]$templateChoice = Read-Host "Enter 1 (Duplicate Item) 2 (Bad Date) 3 (No New Order)"
+while ($templateChoice -lt 1 -or $templateChoice -gt 4) {
+    [int]$templateChoice = Read-Host "Enter 1 (Duplicate Item) 2 (Bad Date) 3 (No New Order) 4 (Sage Credential)"
 }
 
 #---TEMPLATE AGNOSTIC PROMPTS---#
@@ -167,21 +207,25 @@ Switch ($templateChoice) {
     1 {$templateChoiceStr = "Duplicate Item TemlateR Selected! Please complete the prompts."; Break}
     2 {$templateChoiceStr = "Bad Date TemplatR Selected! Please complete the prompts."; Break}
     3 {$templateChoiceStr = "No New Order TemplatR Selected! Please complete the prompts."; Break}
+    4 {$templateChoiceStr = "Sage Credential TemplatR Selected! Please complete the prompts."; Break}
 }
 Write-Host $templateChoiceStr
-$company = Read-Host "Enter the redi company (ex. R100)"
-While ($soStr.length -ne 7) {
-    $soStr = Read-Host "Enter the Sales Order # (must be 7 digits)"
-}
-$so = [int]$soStr
-$so2 = $so
-$dateStr = Read-Host "Enter the ship date ($dtformat)"
-$dtTime = [DateTime]::ParseExact($dateStr, $dtformat, $null)
-$shipDate = $dtTime.ToString("MM-dd-yyyy").Substring(0,10)
-$sapOrder= Read-Host "Enter the SAP Order Number"
-$idoc = Read-Host "Enter the IDOC number"
-While ($attachmentCount -lt 0 -or $attachmentCount -gt 5) {
-    [int]$attachmentCount = Read-Host "How many attachments to include? (enter 0 if none, max of 5)"
+#---SAGE ORDER/CDC TEMPLATE AGNOSTIC PROMPTS---#
+If ($templateChoice -lt 4) {
+ $company = Read-Host "Enter the redi company (ex. R100)"
+ While ($soStr.length -ne 7) {
+     $soStr = Read-Host "Enter the Sales Order # (must be 7 digits)"
+ }
+ $so = [int]$soStr
+ $so2 = $so
+ $dateStr = Read-Host "Enter the ship date ($dtformat)"
+ $dtTime = [DateTime]::ParseExact($dateStr, $dtformat, $null)
+ $shipDate = $dtTime.ToString("MM-dd-yyyy").Substring(0,10)
+ $sapOrder= Read-Host "Enter the SAP Order Number"
+ $idoc = Read-Host "Enter the IDOC number"
+ While ($attachmentCount -lt 0 -or $attachmentCount -gt 5) {
+     [int]$attachmentCount = Read-Host "How many attachments to include? (enter 0 if none, max of 5)"
+ }
 }
 
 if ($templateChoice -eq 1) {
@@ -204,6 +248,29 @@ if ($templateChoice -eq 2) {
     $detailsObj = Get-MyEmailDetails -tType "date"
     $attachments = Get-MyAttachments
     $template = Set-MyTemplate -tName "date"
+}
+
+if ($templateChoice -eq 4) {
+    $user = Read-Host "Enter the users first name"
+    $userEmail = Read-Host "Enter the users email address"
+    while ($sageActionInt -lt 1 -or $sageActionInt -gt 2) {
+        $sageActionInt = Read-Host "Credential Action - Enter 1 (created) 2 (reset)"
+    }
+    Switch($sageActionInt) {
+        1 {$sageAction = "created";Break}
+        2 {$sageAction = "reset";Break}
+    }
+    $login = Read-Host "Enter a login for the user (this is typically the users Emp ID)"
+    #---PASSWORD SHOULD HAVE AT LEAST LOWER,UPPER,DIGIT,AND ! OR @---#
+    do {
+        $password = [System.Web.Security.Membership]::GeneratePassword(15,2)
+    } until ($password -match '(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\!\@]).+')
+    #---OVERRIDE ATTACHMENT LOCATION AND COUNT FOR STATIC INCLUSION OF SAGE IMAGE---#
+    $attachmentPath = "C:\Users\holid\credential_attachment"
+    $attachmentCount = 1
+    $detailsObj = Get-MyEmailDetails -tType "sage"
+    $attachments = Get-MyAttachments
+    $template = Set-MyTemplate -tName "sage"
 }
 
 $to = $detailsObj["to"]
